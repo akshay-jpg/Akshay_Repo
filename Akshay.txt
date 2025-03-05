@@ -38,9 +38,20 @@ pipeline {
 
         stage('Trivy FS Scan') {
             steps {
-                sh "trivy fs --format table -o trivy-fs-report.html ."
+        	script {
+            	try {
+                	echo "Running Trivy File System Scan..."
+                	sh '''
+                	    trivy fs --exit-code 1 --severity HIGH,CRITICAL --format json -o trivy-fs-report.json .
+                	    trivy fs --format table -o trivy-fs-report.html .
+               		 '''
+           	} catch (Exception e) {
+                	echo "Security vulnerabilities found!"
+                	currentBuild.result = 'FAILURE'
+                	error("Stopping pipeline due to critical security issues.")
+           	}
+        	}
             }
-        }
 
         stage('SonarQube Analysis') {
             steps {
