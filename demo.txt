@@ -1,1 +1,145 @@
-demo file
+			pipeline {
+				agent any
+				
+				tools { #These are the tools which is not directly install on machine so need to define in tools section#
+					tool-type 'tool name'
+					jdk 'jdk17'
+					maven 'maven3'
+				}
+				
+				environment { #here we are configuring tool if configure any tool we have define in pipeline#
+							  #calling home directory of sonar scanner tool and these tool perform scanning and generating report#
+					SCANNER_HOME = tool 'sonar-scanner'
+					IMAGE_TAG = "v${BUILD_NUMBER}"
+				}
+				
+				stages
+					stage("Workspace cleanup") { #The Workspace Cleanup stage ensures that the Jenkins workspace is clean before starting 							  a new build.#
+						steps {
+							script {
+								cleanWs()
+							}
+						}
+					}
+					
+					stage('Git Checkout') { #It will create copy of repo inside jenkins so jenkins work on source code#
+						steps {
+								git branch: 'main', credentialsId: 'git-cred', url: 'https://github.com/akshay-jpg/Boardgame.git'
+						}
+					}
+				
+					stage('Compile') { #There is any syntax based error or not#
+						steps {
+							sh "mvn compile"
+						}
+					}
+				
+					stage('Test'){ #Unit test cases execution#
+						steps {
+							sh "mvn test"
+						}
+					}
+				
+					stage('Trivy FS Scan'){ Scan the file system-generate report on table format and need to generate with a 
+											name trivy-fs-report.html & report should not generate inside console log should be exported#
+						steps {
+							sh "trivy fs --format table -o trivy-fs-report.html ."
+						}
+					}
+				
+					stage('SonarQube Analysis'){ **--Here we are configuring server not a tool--*
+												 #connect sonarqube with jenkins click adminastration/security/user-->create token#
+												 #configure token in jenkins credentilas/global/select secret text#
+												 #configure a tool under system by adding (url,name and selct token)#
+						steps {
+							withSonarQubeEnv('sonar') { #add only name of server 'sonar' which we configure with url and cred#
+								sh ''' 
+										$SCANNER_HOME/bin/sonar-scanner \
+										-Dsonar.projectName=mega-project-akshay \
+										-Dsonar.projectKey=mega-project-akshay \
+										-Dsonar.java.binaries=target  #location of binary files which are basically by-product
+																		that created when we build a application#
+									'''
+							}
+						}
+					}
+				
+					stage('Quality Gate Check') { #when we perform analysis using sonarqube scanner the generated report is passes or 
+											not mention threshold then usually it is 80% for that we need to setup webhook which will confirm quality gate is passes or not #
+						steps {
+							timeout(time: 1, unit: 'HOURS') #timer forqualitygetchecking if it take more than 1 hour then pipeline aborted#
+							script {
+								waitForQualityGate abortPipeline: true, credentialsId: 'sonar-token' #true-pipeline aborted if code
+																									 not pass quality gate#
+							}
+						}
+					}
+				
+					stage('Build') { #it will build the project#
+						steps {
+							sh "mvn package"
+						}
+					}
+				
+					stage('Publish to Nexus') { #it will publish the artifact to nexus. for that 1st configure a distribution 
+												management section under pom.xml with nexus maven-release repo(production) and maven-snapshot(lower-env) URL#
+												#to add credentials, we install configfile provider plugin so under manage jenkins we can see "managed files" inside that select glbal maven setting and we have to add ID then by making chnages in servers section add id-maven-releases U-username P-password same for snapshot #
+						steps {
+							withMaven(globalMavenSettingsConfig: 'global-settings', jdk: 'jdk17', maven: 'maven3', mavenSettingsConfig: '', traceability: true)
+								{sh "mvn deploy"} #by running these artifact going to deploy on nexus#
+						}
+					}
+				
+					stage('Build and tag Docker Image') { #it will build and tag the image#
+						steps {
+							script {
+								withDockerRegistry(credentialsId: 'docker-cred', toolName: 'docker')
+									{  sh "docker build -t akshaybajait/boardshack:$IMAGE_TAG ."}
+							}
+						}
+					}
+					
+					stage('Docker Image Scan') { #Scan the docker image#
+						steps {
+							sh "trivy image --format table -o trivy-image-report.html akshaybajait/boardshack:$IMAGE_TAG"
+						}
+					}
+					
+					stage('Push Docker Image') { #it will push the image to docker hub#
+						steps {
+							script {
+								withDockerRegistry(credentialsId: 'docker-cred', toolName: 'docker')
+									{  sh "docker push akshaybajait/boardshack:${params.DOCKER_IMAGE_TAG}" }
+							}
+						}
+					}
+					
+					stage('Update Manifest File in Mega-Project-CD') { #Updating the CD repo#
+						steps {
+							script {
+								cleanWs() #Clean the workspace before update#
+								withCredentials([usernamePassword(credentialsId: 'git-cred', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_PASSWORD')]){
+									sh '''
+									   # Clone the Mega-Projct-CD repository
+									   git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/jaiswaladi246/Multi-Tier-Chat-CD.git
+									   
+									   # Update the image tag in the manifest.yaml file
+									   cd Multi-Tier-ChatApp-CD
+									   sed -i "s|akshaybajait/boardshack:.*|akshaybajait/boardshack:${IMAGE_TAG}|" Manifest/manifest.yml
+									   
+									   #Confirm Changes
+									   echo "Updated manifest file contents:"
+									   cat Manifest/manifest.yaml
+									   
+									   # Commit and push the changs
+									   git config user.name "Jenkins"
+									   git config user.email "jenkins@example.com"
+									   git add Manifest/manifest.yaml
+									   git commit -m "Update image tag to ${IMAGE_TAG}"
+									   git push origin main
+									'''
+								}
+							}
+						}
+					}
+			} 		
