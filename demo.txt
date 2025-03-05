@@ -10,7 +10,7 @@
 				environment { #here we are configuring tool if configure any tool we have define in pipeline#
 							  #calling home directory of sonar scanner tool and these tool perform scanning and generating report#
 					SCANNER_HOME = tool 'sonar-scanner'
-					IMAGE_TAG = "v${BUILD_NUMBER}"
+					IMAGE_TAG = "v${BUILD_NUMBER}"  "It sets SCANNER_HOME to the home directory where the scanner is installed."
 				}
 				
 				stages
