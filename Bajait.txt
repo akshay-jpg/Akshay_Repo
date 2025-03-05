@@ -1,0 +1,39 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Retrieve Latest Image Tag') {
+            steps {
+                script {
+                    def imageTag = readFile('latest_image_tag.txt').trim()
+                    env.IMAGE_TAG = imageTag
+                }
+            }
+        }
+
+        stage('Update Manifest File in Mega-Project-CD') {
+            steps {
+                script {
+                    cleanWs()
+                    withCredentials([usernamePassword(credentialsId: 'git-cred', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_PASSWORD')]) {
+                        sh '''
+                           git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/jaiswaladi246/Multi-Tier-Chat-CD.git
+                           
+                           cd Multi-Tier-Chat-CD
+                           sed -i "s|akshaybajait/boardshack:.*|akshaybajait/boardshack:${IMAGE_TAG}|" Manifest/manifest.yml
+
+                           echo "Updated manifest file contents:"
+                           cat Manifest/manifest.yml
+
+                           git config user.name "Jenkins"
+                           git config user.email "jenkins@example.com"
+                           git add Manifest/manifest.yml
+                           git commit -m "Update image tag to ${IMAGE_TAG}"
+                           git push origin main
+                        '''
+                    }
+                }
+            }
+        }
+    }
+}
