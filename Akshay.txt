@@ -1,4 +1,4 @@
-pipeline {
+cpipeline {
     agent any
 
     tools {
@@ -80,11 +80,21 @@ pipeline {
             }
         }
 
-        stage('Build') {
+        stage('Build') {				<distributionManagement>
+    	  							<repository>
+        							     <id>nexus</id>
+								     <url>http://your-nexus-repo/repository/maven-releases/</url>
+								</repository>
+								<snapshotRepository>
+								     <id>nexus</id>
+								     <url>http://your-nexus-repo/repository/maven-snapshots/</url>
+								</snapshotRepository>
+							</distributionManagement>
+
             steps {
                 sh "mvn package"
-            }
-        }
+            }										
+        }											
 
         stage('Publish to Nexus') {
 	    steps {
