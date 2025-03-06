@@ -64,7 +64,7 @@ pipeline {
                         $SCANNER_HOME/bin/sonar-scanner \
                         -Dsonar.projectName=mega-project-akshay \
                         -Dsonar.projectKey=mega-project-akshay \
-                        -Dsonar.java.binaries=target
+                        -Dsonar.java.binaries=target			#cp sonar-java-plugin.jar /opt/sonarqube/extensions/plugins/
                     '''
                 }
             }
@@ -72,7 +72,7 @@ pipeline {
 
         stage('Quality Gate Check') {
             steps {
-                timeout(time: 1, unit: 'HOURS') {
+                timeout(time: 15, unit: 'MINUTES') {
                     script {
                         waitForQualityGate abortPipeline: true, credentialsId: 'sonar-token'
                     }
