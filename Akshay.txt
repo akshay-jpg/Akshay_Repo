@@ -25,10 +25,13 @@ pipeline {
         }
 
         stage('Compile') {
-            steps {
-                sh "mvn compile"
-            }
-        }
+    	    steps {
+        							#Deletes old compiled files to avoid conflicts.(Deletes only target/)
+         	 sh  "mvn clean validate compile"		#Ensures pom.xml is correct before compiling.(validate) #compile the source code.
+								#Fails the build if any compilation error occurs.
+    	    }
+	}
+
 
         stage('Test') {
             steps {
