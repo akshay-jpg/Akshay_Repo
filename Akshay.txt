@@ -34,7 +34,8 @@ pipeline {
 
 
         stage('Test') {
-            steps {
+            steps {				#Stops the pipeline if any test fails (-Dmaven.test.failure.ignore=false) and retries failed tests twice 
+						#(-Dsurefire.rerunFailingTestsCount=2).
                 sh "mvn test"
             }
         }
