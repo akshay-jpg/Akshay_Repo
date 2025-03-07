@@ -5,8 +5,8 @@ pipeline {
         stage('Retrieve Latest Image Tag') {
             steps {
                 script {
-                    def imageTag = readFile('latest_image_tag.txt').trim()
-                    env.IMAGE_TAG = imageTag
+                    env.IMAGE_TAG = readFile('latest_image_tag.txt').trim()
+                    echo "Retrieved Image Tag: ${env.IMAGE_TAG}"
                 }
             }
         }
