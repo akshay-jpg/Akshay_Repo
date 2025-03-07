@@ -142,6 +142,7 @@ cpipeline {
             steps {
                 sh "echo ${IMAGE_TAG} > latest_image_tag.txt"
                 archiveArtifacts artifacts: 'latest_image_tag.txt', fingerprint: true
+		echo "Saved Image Tag: ${IMAGE_TAG}"
             }
         }
     }
