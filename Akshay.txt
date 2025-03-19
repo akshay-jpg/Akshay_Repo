@@ -114,7 +114,7 @@ pipeline {
         stage('Docker Image Scan') {
     	    steps {
         	script {
-            		def scanStatus = sh(script: "trivy image --exit-code 1 --severity HIGH,CRITICAL --format table -o trivy-image-report.html 					akshaybajait/boardshack:$IMAGE_TAG", returnStatus: true)
+            		def scanStatus = sh(script: "trivy image --exit-code 1 --severity HIGH,CRITICAL --format table -o trivy-image-report.html akshaybajait/boardshack:$IMAGE_TAG", returnStatus: true)
             
             		if (scanStatus != 0) {  
                 		echo "Security vulnerabilities found! Scan status: ${scanStatus}"
