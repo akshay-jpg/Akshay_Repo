@@ -7,7 +7,7 @@ pipeline {
     }
 
     environment {
-        SCANNER_HOME = tool 'sonar-scanner'
+        SCANNER_HOME = tool 'sonar-scanner'   #SCANNER_HOME: Stores SonarQube Scanner tool path.
         IMAGE_TAG = "v${BUILD_NUMBER}"
     }
 
