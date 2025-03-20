@@ -12,7 +12,7 @@ pipeline {
     }
 
     stages {
-        stage("Workspace Cleanup") {
+        stage('Workspace Cleanup') {
             steps {                          #Useful to remove old artifacts or temporary files that may affect new builds.
                 cleanWs()
             }
