@@ -20,7 +20,7 @@ pipeline {
                            git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/jaiswaladi246/Multi-Tier-Chat-CD.git
                            
                            cd Multi-Tier-Chat-CD
-                           sed -i "s|akshaybajait/boardshack:.*|akshaybajait/boardshack:${IMAGE_TAG}|" Manifest/manifest.yml
+                           sed -i "s|akshaybajait/boardshack:.*|akshaybajait/boardshack:${env.IMAGE_TAG}|" Manifest/manifest.yml
 
                            echo "Updated manifest file contents:"
                            cat Manifest/manifest.yml
