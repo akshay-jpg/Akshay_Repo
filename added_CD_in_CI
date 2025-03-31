@@ -1,0 +1,120 @@
+Updated
+pipeline {
+    agent any
+
+    tools {
+        jdk 'jdk17'
+        maven 'maven3'
+    }
+
+    environment {
+        SCANNER_HOME = tool 'sonar-scanner'
+        IMAGE_TAG = "v${BUILD_NUMBER}"
+        DEPLOY_ENV = 'staging'  // Change to 'production' when needed
+        SERVICE_HEALTH_CHECK = "http://order-service:8080/health"  // Example health check URL
+    }
+
+    stages {
+        stage('Workspace Cleanup') {
+            steps { cleanWs() }
+        }
+
+        stage('Git Checkout') {
+            steps {
+                git branch: 'main', credentialsId: 'git-cred', url: 'https://github.com/akshay-jpg/Boardgame.git'
+            }
+        }
+
+        stage('Compile & Test') {
+            steps {
+                sh "mvn clean validate compile test"
+            }
+        }
+
+        stage('Trivy FS Scan') {
+            steps {
+                script {
+                    echo "Running Trivy File System Scan..."
+                    def scanStatus = sh(script: "trivy fs --exit-code 1 --severity HIGH,CRITICAL --format json -o trivy-fs-report.json .", returnStatus: true)
+                    if (scanStatus != 0) {
+                        error("Critical security vulnerabilities found! Stopping build.")
+                    }
+                }
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('sonar') {
+                    sh ''' 
+                        $SCANNER_HOME/bin/sonar-scanner \
+                        -Dsonar.projectKey=mega-project-akshay \
+                        -Dsonar.java.binaries=target
+                    '''
+                }
+            }
+        }
+
+        stage('Quality Gate Check') {
+            steps {
+                timeout(time: 15, unit: 'MINUTES') {
+                    script {
+                        waitForQualityGate abortPipeline: true, credentialsId: 'sonar-token'
+                    }
+                }
+            }
+        }
+
+        stage('Build & Publish Artifact') {
+            steps {
+                sh "mvn package"
+                sh "mvn deploy"  // Pushes to Nexus
+            }
+        }
+
+        stage('Build & Tag Docker Image') {
+            steps {
+                sh "docker build -t akshaybajait/boardshack:$IMAGE_TAG ."
+            }
+        }
+
+        stage('Docker Image Scan') {
+            steps {
+                script {
+                    def scanStatus = sh(script: "trivy image --exit-code 1 --severity HIGH,CRITICAL akshaybajait/boardshack:$IMAGE_TAG", returnStatus: true)
+                    if (scanStatus != 0) {
+                        error("Critical vulnerabilities found! Stopping build.")
+                    }
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                withDockerRegistry(credentialsId: 'docker-cred', toolName: 'docker') {
+                    sh "docker push akshaybajait/boardshack:$IMAGE_TAG"
+                }
+            }
+        }
+
+        stage('Save Image Tag') {
+            steps {
+                sh "echo ${IMAGE_TAG} > latest_image_tag.txt"
+                archiveArtifacts artifacts: 'latest_image_tag.txt', fingerprint: true
+            }
+        }
+
+        stage('Trigger CD Pipeline') {
+            steps {
+                script {
+                    if (env.DEPLOY_ENV == 'staging') {
+                        echo "Auto-triggering CD pipeline for staging..."
+                        build job: 'Mega-Project-CD', parameters: [string(name: 'IMAGE_TAG', value: IMAGE_TAG)]
+                    } else {
+                        echo "Skipping automatic CD trigger for production. Manual PR approval required."
+                    }
+                }
+            }
+        }
+    }
+}
