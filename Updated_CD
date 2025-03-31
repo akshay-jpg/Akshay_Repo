@@ -1,0 +1,59 @@
+pipeline {
+    agent any
+
+    environment {
+        SERVICE_HEALTH_CHECK = "http://order-service:8080/health"  // Modify as per actual microservice
+    }
+
+    stages {
+        stage('Retrieve Latest Image Tag') {
+            steps {
+                script {
+                    env.IMAGE_TAG = readFile('latest_image_tag.txt').trim()
+                    echo "Retrieved Image Tag: ${env.IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Check Service Readiness') {
+            steps {
+                script {
+                    def healthCheck = sh(script: "curl -s -o /dev/null -w '%{http_code}' ${SERVICE_HEALTH_CHECK}", returnStdout: true).trim()
+                    if (healthCheck != '200') {
+                        error("Dependency service is not healthy! Stopping deployment.")
+                    } else {
+                        echo "Dependency service is healthy. Proceeding with deployment."
+                    }
+                }
+            }
+        }
+
+        stage('Update Manifest File in Mega-Project-CD') {
+            steps {
+                script {
+                    cleanWs()
+                    withCredentials([usernamePassword(credentialsId: 'git-cred', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_PASSWORD')]) {
+                        sh '''
+                           git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/jaiswaladi246/Multi-Tier-Chat-CD.git
+                           cd Multi-Tier-Chat-CD
+
+                           BRANCH_NAME="update-image-${BUILD_NUMBER}"
+                           git checkout -b $BRANCH_NAME
+
+                           sed -i "s|akshaybajait/boardshack:.*|akshaybajait/boardshack:${env.IMAGE_TAG}|" Manifest/manifest.yml
+
+                           echo "Updated manifest file contents:"
+                           cat Manifest/manifest.yml
+
+                           git add Manifest/manifest.yml
+                           git commit -m "Update image tag to ${IMAGE_TAG}"
+                           git push origin $BRANCH_NAME
+
+                           gh pr create --title "Update Image Tag to ${IMAGE_TAG}" --body "Automated update via Jenkins" --base prod --head $BRANCH_NAME
+                        '''
+                    }
+                }
+            }
+        }
+    }
+}
