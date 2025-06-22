@@ -1,0 +1,70 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'SERVICE_NAME', defaultValue: '', description: 'Name of the microservice to verify')
+    }
+
+    environment {
+        GIT_REPO = "https://github.com/jaiswaladi246/Multi-Tier-Chat-CD.git"
+        NAMESPACE = "mega-project"
+    }
+
+    stages {
+        stage('Clone CD Repo (prod branch)') {
+            steps {
+                cleanWs()
+                withCredentials([usernamePassword(credentialsId: 'git-cred', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_PASSWORD')]) {
+                    sh '''
+                        echo "Cloning CD repo prod branch..."
+                        git clone -b prod https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/jaiswaladi246/Multi-Tier-Chat-CD.git
+                    '''
+                }
+            }
+        }
+
+        stage('Verify Deployment & Rollback if Needed') {
+            steps {
+                script {
+                    sh '''
+                        cd Multi-Tier-Chat-CD/${SERVICE_NAME}
+
+                        echo "Reading live color..."
+                        LIVE_COLOR=$(cat live-color.txt)
+                        echo "Current live color: $LIVE_COLOR"
+
+                        echo "Verifying deployment: ${SERVICE_NAME}-${LIVE_COLOR}"
+                        sleep 30  # Give some time for ArgoCD to finish sync
+
+                        STATUS=$(kubectl -n mega-project get deployment ${SERVICE_NAME}-${LIVE_COLOR} -o json | jq -r '.status.conditions[] | select(.type=="Available") | .status')
+
+                        if [ "$STATUS" != "True" ]; then
+                            echo "❌ Deployment failed. Rolling back to previous version."
+
+                            if [ "$LIVE_COLOR" = "blue" ]; then
+                                PREV_COLOR="green"
+                            else
+                                PREV_COLOR="blue"
+                            fi
+
+                            sed -i "s|version: $LIVE_COLOR|version: $PREV_COLOR|" service.yml
+                            echo "$PREV_COLOR" > live-color.txt
+
+                            git config user.name "cd-bot"
+                            git config user.email "cd-bot@example.com"
+
+                            git add service.yml live-color.txt
+                            git commit -m "Rollback: Deployment failed for ${SERVICE_NAME}, restored to $PREV_COLOR"
+                            git push origin prod
+
+                            echo "🔁 Rolled back to previous deployment: $PREV_COLOR"
+                            exit 1
+                        else
+                            echo "✅ Deployment verified successfully for ${SERVICE_NAME}-${LIVE_COLOR}"
+                        fi
+                    '''
+                }
+            }
+        }
+    }
+}
