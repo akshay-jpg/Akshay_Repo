@@ -1,0 +1,120 @@
+pipeline {
+    agent any
+
+    tools {
+        jdk 'jdk17'
+        maven 'maven3'
+    }
+
+    environment {
+        SCANNER_HOME = tool 'sonar-scanner'
+        IMAGE_TAG = "v${BUILD_NUMBER}"
+        VERSION = "1.0.${BUILD_NUMBER}"
+        SERVICE_NAME = "checkout" // Parameterize later if multi-service
+    }
+
+    stages {
+        stage('Workspace Cleanup') {
+            steps { cleanWs() }
+        }
+
+        stage('Checkout Source Code') {
+            steps {
+                git branch: 'prod', credentialsId: 'git-cred', url: 'https://github.com/your-org/microservice1.git'
+            }
+        }
+
+        stage('Compile & Test') {
+            steps {
+                sh "mvn clean validate compile test"
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('sonar') {
+                    sh """ 
+                        ${SCANNER_HOME}/bin/sonar-scanner \
+                        -Dsonar.projectName=mega-project-akshay \
+                        -Dsonar.projectKey=mega-project-akshay \
+                        -Dsonar.branch.name=prod \
+                        -Dsonar.java.binaries=target
+                    """
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 15, unit: 'MINUTES') {
+                    script {
+                        waitForQualityGate abortPipeline: true, credentialsId: 'sonar-token', qualityGate: 'Strict Gate'
+                    }
+                }
+            }
+        }
+
+        stage('Build & Publish') {
+            steps {
+                sh "mvn package"
+                withMaven(globalMavenSettingsConfig: 'global-settings', jdk: 'jdk17', maven: 'maven3') {
+                    sh "mvn deploy -Pprod"
+                }
+            }
+        }
+
+        stage('Build & Push Docker Image') {
+            steps {
+                script {
+                    def imageName = "192.168.1.100:8082/docker-repo/${SERVICE_NAME}:${IMAGE_TAG}"
+                    sh "docker build -t ${imageName} ."
+                    withDockerRegistry(credentialsId: 'nexus-docker-cred', url: 'http://192.168.1.100:8082') {
+                        sh "docker push ${imageName}"
+                    }
+                }
+            }
+        }
+
+        stage('Update CD Manifest & Create PR') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'git-cred', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_PASSWORD')]) {
+                    sh '''
+                        git config --global user.name "ci-bot"
+                        git config --global user.email "ci-bot@example.com"
+
+                        echo "Cloning CD repo..."
+                        git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/jaiswaladi246/Multi-Tier-Chat-CD.git
+                        cd Multi-Tier-Chat-CD
+                        
+                        BRANCH_NAME="update-${SERVICE_NAME}-${BUILD_NUMBER}"
+                        git checkout -b $BRANCH_NAME
+
+                        cd ${SERVICE_NAME}
+                        
+                        if [ -f live-color.txt ]; then
+                            LIVE_COLOR=$(cat live-color.txt)
+                        else
+                            LIVE_COLOR=""
+                        fi
+
+                        if [ "$LIVE_COLOR" = "blue" ]; then
+                            DEPLOY_COLOR="green"
+                        else
+                            DEPLOY_COLOR="blue"
+                        fi
+
+                        sed -i "s|image: .*${SERVICE_NAME}:.*|image: 192.168.1.100:8082/docker-repo/${SERVICE_NAME}:${IMAGE_TAG}|" $DEPLOY_COLOR/deployment.yml
+                        sed -i "s|version: $LIVE_COLOR|version: $DEPLOY_COLOR|" service.yml
+                        echo "$DEPLOY_COLOR" > live-color.txt
+
+                        git add $DEPLOY_COLOR/deployment.yml service.yml live-color.txt
+                        git commit -m "CI: Deploy ${SERVICE_NAME}:${IMAGE_TAG} to ${DEPLOY_COLOR}"
+                        git push origin $BRANCH_NAME
+
+                        gh pr create --title "Deploy ${SERVICE_NAME}:${IMAGE_TAG}" --body "CI created PR to deploy ${SERVICE_NAME} to ${DEPLOY_COLOR}" --base prod --head $BRANCH_NAME
+                    '''
+                }
+            }
+        }
+    }
+}
