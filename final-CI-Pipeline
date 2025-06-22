@@ -74,7 +74,7 @@ pipeline {
             }
         }
 
-        stage('Update CD Manifest & Create PR') {
+        stage('Prepare CD Manifest & Open PR') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'git-cred', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_PASSWORD')]) {
                     sh '''
